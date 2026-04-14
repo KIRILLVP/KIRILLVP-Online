@@ -27,7 +27,6 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        // Стабильное подключение для Render
         const socket = io({ transports: ['websocket'], upgrade: false });
         
         const canvas = document.getElementById('gameCanvas');
@@ -42,7 +41,7 @@
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
 
-        let players = {};
+        let players = {}; 
         let bullets = [];
         let obstacles = [];
         let MAP_SIZE = 2000;
@@ -68,7 +67,27 @@
         socket.on('updateOnline', (count) => { onlineDisplay.innerText = 'Online: ' + count; });
         
         socket.on('update', (data) => { 
-            players = data.players; bullets = data.bullets; 
+            // Обновляем данные игроков, сохраняя плавность
+            for (let id in data.players) {
+                const sP = data.players[id];
+                if (!players[id]) {
+                    players[id] = { ...sP }; // Если игрока еще нет, создаем
+                } else {
+                    // Записываем новые координаты как "целевые"
+                    players[id].targetX = sP.x;
+                    players[id].targetY = sP.y;
+                    players[id].hp = sP.hp;
+                    players[id].dead = sP.dead;
+                    players[id].color = sP.color;
+                    players[id].name = sP.name;
+                }
+            }
+            // Удаляем вышедших игроков
+            for (let id in players) {
+                if (!data.players[id]) delete players[id];
+            }
+
+            bullets = data.bullets; 
             const me = players[socket.id];
             deathScreen.style.display = (me && me.dead) ? 'block' : 'none';
         });
@@ -79,16 +98,9 @@
             if (data.victimId === socket.id) {
                 damageSound.currentTime = 0;
                 damageSound.play().catch(() => {});
-            } 
-            else if (data.attackerId === socket.id) {
-                const camX = me.x - canvas.width / 2;
-                const camY = me.y - canvas.height / 2;
-                const isVisible = data.x > camX && data.x < camX + canvas.width &&
-                                  data.y > camY && data.y < camY + canvas.height;
-                if (isVisible) {
-                    damageSound.currentTime = 0;
-                    damageSound.play().catch(() => {});
-                }
+            } else if (data.attackerId === socket.id) {
+                damageSound.currentTime = 0;
+                damageSound.play().catch(() => {});
             }
         });
 
@@ -115,24 +127,38 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             if (me) {
+                // Плавное движение всех игроков к их реальным позициям (LERP)
+                for (let id in players) {
+                    let p = players[id];
+                    if (p.targetX !== undefined) {
+                        p.x += (p.targetX - p.x) * 0.3; // 0.3 — скорость сглаживания
+                        p.y += (p.targetY - p.y) * 0.3;
+                    }
+                }
+
                 const camX = Math.floor(me.x - canvas.width / 2);
                 const camY = Math.floor(me.y - canvas.height / 2);
 
                 ctx.save();
                 ctx.translate(-camX, -camY);
 
+                // Сетка
                 ctx.strokeStyle = '#222';
+                ctx.lineWidth = 1;
                 for(let i=0; i<=MAP_SIZE; i+=100) {
                     ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, MAP_SIZE); ctx.stroke();
                     ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(MAP_SIZE, i); ctx.stroke();
                 }
 
+                // Препятствия
                 ctx.fillStyle = '#444';
                 obstacles.forEach(o => { ctx.fillRect(o.x, o.y, o.w, o.h); ctx.strokeRect(o.x, o.y, o.w, o.h); });
 
+                // Пули
                 ctx.fillStyle = '#ffff00';
                 bullets.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI*2); ctx.fill(); });
 
+                // Игроки
                 for (let id in players) {
                     const p = players[id];
                     if (p.dead) continue;
@@ -141,6 +167,8 @@
                     ctx.strokeStyle = (id === socket.id) ? '#fff' : '#000';
                     ctx.lineWidth = 2;
                     ctx.strokeRect(p.x, p.y, 40, 40);
+                    
+                    // Имя и HP
                     ctx.fillStyle = '#fff';
                     ctx.font = 'bold 14px Arial';
                     ctx.textAlign = 'center';
@@ -152,6 +180,7 @@
                 }
                 ctx.restore();
 
+                // Прицел
                 ctx.strokeStyle = '#0f0';
                 ctx.lineWidth = 2;
                 ctx.beginPath();
@@ -159,6 +188,7 @@
                 ctx.moveTo(mousePos.x, mousePos.y - 15); ctx.lineTo(mousePos.x, mousePos.y + 15);
                 ctx.stroke();
 
+                // Управление
                 let vx = 0, vy = 0;
                 if (keys['KeyW']) vy -= 1; if (keys['KeyS']) vy += 1;
                 if (keys['KeyA']) vx -= 1; if (keys['KeyD']) vx += 1;
