@@ -14,28 +14,27 @@ let bullets = [];
 const MAP_SIZE = 2000;
 const obstacles = [];
 
-// Проверка коллизий для генерации
-function isAreaClear(x, y, w, h, padding = 45) {
+function isAreaClear(x, y, w, h, padding = 20) {
     return !obstacles.some(o => 
         x < o.x + o.w + padding && x + w + padding > o.x &&
         y < o.y + o.h + padding && y + h + padding > o.y
     );
 }
 
-// Стены
-obstacles.push({ x: 0, y: 0, w: MAP_SIZE, h: 20, type: 'wall' });
-obstacles.push({ x: 0, y: MAP_SIZE - 20, w: MAP_SIZE, h: 20, type: 'wall' });
-obstacles.push({ x: 0, y: 0, w: 20, h: MAP_SIZE, type: 'wall' });
-obstacles.push({ x: MAP_SIZE - 20, y: 0, w: 20, h: MAP_SIZE, type: 'wall' });
+// Границы
+obstacles.push({ x: 0, y: 0, w: MAP_SIZE, h: 15, type: 'wall' });
+obstacles.push({ x: 0, y: MAP_SIZE - 15, w: MAP_SIZE, h: 15, type: 'wall' });
+obstacles.push({ x: 0, y: 0, w: 15, h: MAP_SIZE, type: 'wall' });
+obstacles.push({ x: MAP_SIZE - 15, y: 0, w: 15, h: MAP_SIZE, type: 'wall' });
 
 let attempts = 0;
-while (obstacles.length < 75 && attempts < 1500) {
+while (obstacles.length < 65 && attempts < 500) {
     const isBox = Math.random() > 0.6;
     const w = isBox ? 45 : 50 + Math.random() * 150;
     const h = isBox ? 45 : 50 + Math.random() * 150;
     const x = Math.random() * (MAP_SIZE - 250) + 50;
     const y = Math.random() * (MAP_SIZE - 250) + 50;
-    if (isAreaClear(x, y, w, h, 50)) {
+    if (isAreaClear(x, y, w, h, 30)) {
         obstacles.push({ x, y, w, h, type: isBox ? 'box' : 'wall' });
     }
     attempts++;
@@ -44,9 +43,9 @@ while (obstacles.length < 75 && attempts < 1500) {
 function getSafeSpawn() {
     let sx, sy, safe = false;
     while (!safe) {
-        sx = 150 + Math.random() * (MAP_SIZE - 300);
-        sy = 150 + Math.random() * (MAP_SIZE - 300);
-        safe = !obstacles.some(o => sx < o.x + o.w + 15 && sx + 40 > o.x - 15 && sy < o.y + o.h + 15 && sy + 40 > o.y - 15);
+        sx = 100 + Math.random() * (MAP_SIZE - 200);
+        sy = 100 + Math.random() * (MAP_SIZE - 200);
+        safe = !obstacles.some(o => sx < o.x + o.w + 10 && sx + 40 > o.x - 10 && sy < o.y + o.h + 10 && sy + 40 > o.y - 10);
     }
     return { x: sx, y: sy };
 }
@@ -54,10 +53,10 @@ function getSafeSpawn() {
 io.on('connection', (socket) => {
     const spawn = getSafeSpawn();
     let color;
-    let isUnique = false;
-    while (!isUnique) {
-        color = `hsl(${Math.random() * 360}, 85%, 60%)`;
-        isUnique = !Object.values(players).some(p => p.color === color);
+    let colorUnique = false;
+    while(!colorUnique) {
+        color = `hsl(${Math.random() * 360}, 70%, 50%)`;
+        colorUnique = !Object.values(players).some(p => p.color === color);
     }
 
     players[socket.id] = {
@@ -93,7 +92,7 @@ io.on('connection', (socket) => {
         if (!p || p.dead || Date.now() - p.lastShot < 400) return;
         p.lastShot = Date.now();
         const angle = Math.atan2(target.y - (p.y + 20), target.x - (p.x + 20));
-        bullets.push({ id: socket.id, x: p.x + 20, y: p.y + 20, vx: Math.cos(angle) * 12, vy: Math.sin(angle) * 12, life: 100 });
+        bullets.push({ id: socket.id, x: p.x + 20, y: p.y + 20, vx: Math.cos(angle) * 12, vy: Math.sin(angle) * 12, life: 80 });
         socket.emit('playShotSound'); 
     });
 
@@ -116,19 +115,9 @@ setInterval(() => {
                 if (b.x > p.x && b.x < p.x + 40 && b.y > p.y && b.y < p.y + 40) {
                     p.hp -= 1; b.life = 0;
                     
-                    // Звук жертве
-                    io.to(id).emit('hitEffect'); 
-                    
-                    // Звук стрелку (ТОЧНЫЙ ПРЯМОУГОЛЬНИК ВИДИМОСТИ)
-                    const shooter = players[b.id];
-                    if (shooter) {
-                        const diffX = Math.abs(p.x - shooter.x);
-                        const diffY = Math.abs(p.y - shooter.y);
-                        // 1000 по горизонтали, 600 по вертикали от центра
-                        if (diffX < 1000 && diffY < 600) {
-                            io.to(b.id).emit('hitEffect');
-                        }
-                    }
+                    // Звук и эффект обоим игрокам (без условий по дистанции)
+                    io.to(id).emit('hitEffect');   // Жертве (плюс покраснение)
+                    io.to(b.id).emit('hitEffect'); // Стрелку (подтверждение попадания)
 
                     if (p.hp <= 0) {
                         p.dead = true;
@@ -147,6 +136,6 @@ setInterval(() => {
     });
     bullets = bullets.filter(b => b.life > 0);
     io.emit('update', { players, bullets });
-}, 16);
+}, 15);
 
 server.listen(process.env.PORT || 3000);
