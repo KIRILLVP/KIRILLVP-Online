@@ -7,9 +7,41 @@
         #ui { position: absolute; top: 20px; left: 20px; color: white; pointer-events: none; z-index: 10; text-shadow: 1px 1px 2px black; }
         #online-count { font-size: 20px; font-weight: bold; color: #00ff00; margin-bottom: 5px; }
         #death-screen { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #ff4444; font-size: 80px; font-weight: bold; display: none; text-shadow: 0 0 20px black; z-index: 20; }
+        
+        /* Стили для меню выбора сервера */
+        #lobby-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 10, 10, 0.95);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 1000; color: white; text-align: center;
+        }
+        .server-btn {
+            padding: 15px 40px; margin: 10px; font-size: 18px; font-weight: bold;
+            cursor: pointer; border: 2px solid #00ff00; background: transparent;
+            color: white; border-radius: 8px; width: 320px; transition: 0.3s;
+        }
+        .server-btn:hover { background: #00ff00; color: black; box-shadow: 0 0 20px #00ff00; }
+        .server-btn span { display: block; font-size: 12px; font-weight: normal; opacity: 0.7; }
     </style>
 </head>
 <body>
+    <div id="lobby-overlay">
+        <h1 style="font-size: 50px; color: #00ff00; margin-bottom: 10px;">KIRILLVP ONLINE</h1>
+        <p style="margin-bottom: 30px; opacity: 0.8;">Select a server near you for the best experience:</p>
+        
+        <button class="server-btn" onclick="joinGame('https://kirillvp-online-frankfurt.onrender.com')">
+            EUROPE <span>Frankfurt, Germany</span>
+        </button>
+        
+        <button class="server-btn" onclick="joinGame('https://kirillvp-online.onrender.com')" style="border-color: #0088ff;">
+            USA <span>Virginia</span>
+        </button>
+        
+        <button class="server-btn" onclick="joinGame('https://kirillvp-online-singapore.onrender.com')" style="border-color: #ffcc00;">
+            ASIA <span>Singapore</span>
+        </button>
+    </div>
+
     <audio id="bgMusic" loop><source src="Funny-Pluck.mp3" type="audio/mpeg"></audio>
     <audio id="shotSound"><source src="shot.mp3" type="audio/mpeg"></audio>
     <audio id="damageSound"><source src="damage.mp3" type="audio/mpeg"></audio>
@@ -23,11 +55,12 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        const socket = io({ transports: ['websocket'] });
+        let socket; // Сокет создадим позже
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const deathScreen = document.getElementById('death-screen');
         const onlineDisplay = document.getElementById('online-count');
+        const lobbyOverlay = document.getElementById('lobby-overlay');
         
         const bgMusic = document.getElementById('bgMusic');
         const shotSound = document.getElementById('shotSound');
@@ -42,54 +75,63 @@
         let MAP_SIZE = 2000;
         let mousePos = { x: 0, y: 0 };
         const keys = {};
+        let gameActive = false;
 
         bgMusic.volume = 0.2;
         shotSound.volume = 0.4;
         damageSound.volume = 0.5;
 
-        // Звуки разблокируются по клику
-        const unlockAudio = () => { bgMusic.play().catch(() => {}); window.removeEventListener('mousedown', unlockAudio); };
-        window.addEventListener('mousedown', unlockAudio);
+        // ФУНКЦИЯ ПОДКЛЮЧЕНИЯ
+        function joinGame(serverUrl) {
+            lobbyOverlay.style.display = 'none';
+            gameActive = true;
 
-        socket.on('init', (data) => { obstacles = data.obstacles; MAP_SIZE = data.mapSize; });
-        socket.on('updateOnline', (count) => { onlineDisplay.innerText = 'Online: ' + count; });
-        
-        socket.on('update', (data) => { 
-            for (let id in data.players) {
-                const sP = data.players[id];
-                if (!players[id]) {
-                    players[id] = { ...sP, targetX: sP.x, targetY: sP.y };
-                } else {
-                    // Для себя мы используем более мягкое сглаживание, чтобы не "дергало" назад
-                    if (id === socket.id) {
-                        players[id].targetX = sP.x;
-                        players[id].targetY = sP.y;
+            // Разблокируем звук
+            bgMusic.play().catch(() => {});
+
+            // Инициализируем сокет по выбранному адресу
+            socket = io(serverUrl, { transports: ['websocket'] });
+
+            // Настраиваем обработчики сокета
+            setupSocketHandlers();
+        }
+
+        function setupSocketHandlers() {
+            socket.on('init', (data) => { obstacles = data.obstacles; MAP_SIZE = data.mapSize; });
+            socket.on('updateOnline', (count) => { onlineDisplay.innerText = 'Online: ' + count; });
+            
+            socket.on('update', (data) => { 
+                for (let id in data.players) {
+                    const sP = data.players[id];
+                    if (!players[id]) {
+                        players[id] = { ...sP, targetX: sP.x, targetY: sP.y };
                     } else {
                         players[id].targetX = sP.x;
                         players[id].targetY = sP.y;
+                        players[id].hp = sP.hp;
+                        players[id].dead = sP.dead;
+                        players[id].color = sP.color;
+                        players[id].name = sP.name;
                     }
-                    players[id].hp = sP.hp;
-                    players[id].dead = sP.dead;
-                    players[id].color = sP.color;
-                    players[id].name = sP.name;
                 }
-            }
-            for (let id in players) { if (!data.players[id]) delete players[id]; }
-            bullets = data.bullets; 
-            if (players[socket.id]) deathScreen.style.display = players[socket.id].dead ? 'block' : 'none';
-        });
+                for (let id in players) { if (!data.players[id]) delete players[id]; }
+                bullets = data.bullets; 
+                if (players[socket.id]) deathScreen.style.display = players[socket.id].dead ? 'block' : 'none';
+            });
 
-        socket.on('hitEffect', (data) => {
-            if (data.victimId === socket.id || data.attackerId === socket.id) {
-                damageSound.currentTime = 0; damageSound.play().catch(() => {});
-            }
-        });
+            socket.on('hitEffect', (data) => {
+                if (data.victimId === socket.id || data.attackerId === socket.id) {
+                    damageSound.currentTime = 0; damageSound.play().catch(() => {});
+                }
+            });
+        }
 
         window.addEventListener('keydown', (e) => { keys[e.code] = true; });
         window.addEventListener('keyup', (e) => { keys[e.code] = false; });
         window.addEventListener('mousemove', (e) => { mousePos.x = e.clientX; mousePos.y = e.clientY; });
         
         window.addEventListener('mousedown', () => {
+            if (!socket || !gameActive) return;
             const me = players[socket.id];
             if (!me || me.dead) return;
             shotSound.currentTime = 0; shotSound.play().catch(() => {});
@@ -99,11 +141,16 @@
         });
 
         function draw() {
+            if (!gameActive || !socket) {
+                requestAnimationFrame(draw);
+                return;
+            }
+
             const me = players[socket.id];
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             if (me) {
-                // ПРЕДСКАЗАНИЕ ДЛЯ СЕБЯ (Client Prediction)
+                // ПРЕДСКАЗАНИЕ ДЛЯ СЕБЯ
                 let vx = 0, vy = 0;
                 if (keys['KeyW']) vy -= 1; if (keys['KeyS']) vy += 1;
                 if (keys['KeyA']) vx -= 1; if (keys['KeyD']) vx += 1;
@@ -114,29 +161,22 @@
                     const dx = (vx / len) * speed;
                     const dy = (vy / len) * speed;
                     
-                    // Простая проверка столкновений на клиенте для плавности
                     if (!obstacles.some(o => me.x + dx < o.x + o.w && me.x + dx + 40 > o.x && me.y < o.y + o.h && me.y + 40 > o.y)) me.x += dx;
                     if (!obstacles.some(o => me.x < o.x + o.w && me.x + 40 > o.x && me.y + dy < o.y + o.h && me.y + dy + 40 > o.y)) me.y += dy;
                     
                     socket.emit('move', { x: vx, y: vy });
                 }
 
-                // ПЛАВНАЯ КОРРЕКЦИЯ ОТ СЕРВЕРА
+                // ПЛАВНАЯ КОРРЕКЦИЯ
                 for (let id in players) {
                     let p = players[id];
                     if (id !== socket.id) {
-                        // Другие игроки: плавный LERP
                         p.x += (p.targetX - p.x) * 0.25;
                         p.y += (p.targetY - p.y) * 0.25;
                     } else {
-                        // Ты сам: очень мягкая коррекция, чтобы не было рывков назад
                         const dist = Math.sqrt((p.targetX - p.x)**2 + (p.targetY - p.y)**2);
-                        if (dist > 50) { // Если рассинхрон слишком большой — телепортируем
-                            p.x = p.targetX; p.y = p.targetY;
-                        } else {
-                            p.x += (p.targetX - p.x) * 0.1;
-                            p.y += (p.targetY - p.y) * 0.1;
-                        }
+                        if (dist > 50) { p.x = p.targetX; p.y = p.targetY; } 
+                        else { p.x += (p.targetX - p.x) * 0.1; p.y += (p.targetY - p.y) * 0.1; }
                     }
                 }
 
