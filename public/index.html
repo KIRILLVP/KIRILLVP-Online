@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>KIRILLVP Online</title>
+    <title>KIRILLVP Online Game</title>
     <style>
         body { margin: 0; background: #111; overflow: hidden; font-family: 'Segoe UI', Arial, sans-serif; }
         #ui { position: absolute; top: 20px; left: 20px; color: white; pointer-events: none; z-index: 10; text-shadow: 1px 1px 2px black; }
@@ -9,7 +9,6 @@
         #current-region { font-size: 14px; opacity: 0.8; color: #aaa; margin-bottom: 10px; }
         #death-screen { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #ff4444; font-size: 80px; font-weight: bold; display: none; text-shadow: 0 0 20px black; z-index: 20; }
         
-        /* Стили для меню выбора сервера */
         #lobby-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(10, 10, 10, 0.95);
@@ -28,18 +27,9 @@
     <div id="lobby-overlay">
         <h1 style="font-size: 50px; color: #00ff00; margin-bottom: 10px;">KIRILLVP ONLINE</h1>
         <p style="margin-bottom: 30px; opacity: 0.8;">Select a server region:</p>
-        
-        <button class="server-btn" onclick="joinGame('https://kirillvp-online-frankfurt.onrender.com', 'Frankfurt (EU Central)')">
-            Frankfurt (EU Central)
-        </button>
-        
-        <button class="server-btn" onclick="joinGame('https://kirillvp-online.onrender.com', 'Virginia (US East)')" style="border-color: #0088ff;">
-            Virginia (US East)
-        </button>
-        
-        <button class="server-btn" onclick="joinGame('https://kirillvp-online-singapore.onrender.com', 'Singapore (Asia)')" style="border-color: #ffcc00;">
-            Singapore (Asia)
-        </button>
+        <button class="server-btn" onclick="joinGame('https://kirillvp-online-frankfurt.onrender.com', 'Frankfurt (EU Central)')">Frankfurt (EU Central)</button>
+        <button class="server-btn" onclick="joinGame('https://kirillvp-online.onrender.com', 'Virginia (US East)')" style="border-color: #0088ff;">Virginia (US East)</button>
+        <button class="server-btn" onclick="joinGame('https://kirillvp-online-singapore.onrender.com', 'Singapore (Asia)')" style="border-color: #ffcc00;">Singapore (Asia)</button>
     </div>
 
     <audio id="bgMusic" loop><source src="Funny-Pluck.mp3" type="audio/mpeg"></audio>
@@ -83,12 +73,10 @@
         shotSound.volume = 0.4;
         damageSound.volume = 0.5;
 
-        // ФУНКЦИЯ ПОДКЛЮЧЕНИЯ
         function joinGame(serverUrl, regionName) {
             lobbyOverlay.style.display = 'none';
             gameActive = true;
             regionDisplay.innerText = 'Region: ' + regionName;
-
             bgMusic.play().catch(() => {});
             socket = io(serverUrl, { transports: ['websocket'] });
             setupSocketHandlers();
@@ -117,6 +105,12 @@
                 if (players[socket.id]) deathScreen.style.display = players[socket.id].dead ? 'block' : 'none';
             });
 
+            // ЗВУК ВЫСТРЕЛА ОТ СЕРВЕРА
+            socket.on('playShotSound', (data) => {
+                shotSound.currentTime = 0;
+                shotSound.play().catch(() => {});
+            });
+
             socket.on('hitEffect', (data) => {
                 if (data.victimId === socket.id || data.attackerId === socket.id) {
                     damageSound.currentTime = 0; damageSound.play().catch(() => {});
@@ -132,69 +126,52 @@
             if (!socket || !gameActive) return;
             const me = players[socket.id];
             if (!me || me.dead) return;
-            shotSound.currentTime = 0; shotSound.play().catch(() => {});
+            // ЗДЕСЬ УДАЛЕН ПРОИГРЫВАТЕЛЬ ЗВУКА, ТЕПЕРЬ ОН В setupSocketHandlers
             const camX = me.x - canvas.width / 2;
             const camY = me.y - canvas.height / 2;
             socket.emit('shoot', { x: mousePos.x + camX, y: mousePos.y + camY });
         });
 
         function draw() {
-            if (!gameActive || !socket) {
-                requestAnimationFrame(draw);
-                return;
-            }
-
+            if (!gameActive || !socket) { requestAnimationFrame(draw); return; }
             const me = players[socket.id];
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
             if (me) {
-                // ПРЕДСКАЗАНИЕ ДЛЯ СЕБЯ
                 let vx = 0, vy = 0;
                 if (keys['KeyW']) vy -= 1; if (keys['KeyS']) vy += 1;
                 if (keys['KeyA']) vx -= 1; if (keys['KeyD']) vx += 1;
-                
                 if ((vx !== 0 || vy !== 0) && !me.dead) {
                     const speed = 5;
                     const len = Math.sqrt(vx * vx + vy * vy);
                     const dx = (vx / len) * speed;
                     const dy = (vy / len) * speed;
-                    
                     if (!obstacles.some(o => me.x + dx < o.x + o.w && me.x + dx + 40 > o.x && me.y < o.y + o.h && me.y + 40 > o.y)) me.x += dx;
                     if (!obstacles.some(o => me.x < o.x + o.w && me.x + 40 > o.x && me.y + dy < o.y + o.h && me.y + dy + 40 > o.y)) me.y += dy;
-                    
                     socket.emit('move', { x: vx, y: vy });
                 }
-
                 for (let id in players) {
                     let p = players[id];
                     if (id !== socket.id) {
-                        p.x += (p.targetX - p.x) * 0.25;
-                        p.y += (p.targetY - p.y) * 0.25;
+                        p.x += (p.targetX - p.x) * 0.25; p.y += (p.targetY - p.y) * 0.25;
                     } else {
                         const dist = Math.sqrt((p.targetX - p.x)**2 + (p.targetY - p.y)**2);
                         if (dist > 50) { p.x = p.targetX; p.y = p.targetY; } 
                         else { p.x += (p.targetX - p.x) * 0.1; p.y += (p.targetY - p.y) * 0.1; }
                     }
                 }
-
                 const camX = Math.floor(me.x - canvas.width / 2);
                 const camY = Math.floor(me.y - canvas.height / 2);
-
                 ctx.save();
                 ctx.translate(-camX, -camY);
-
                 ctx.strokeStyle = '#222';
                 for(let i=0; i<=MAP_SIZE; i+=100) {
                     ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, MAP_SIZE); ctx.stroke();
                     ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(MAP_SIZE, i); ctx.stroke();
                 }
-
                 ctx.fillStyle = '#444';
                 obstacles.forEach(o => { ctx.fillRect(o.x, o.y, o.w, o.h); ctx.strokeRect(o.x, o.y, o.w, o.h); });
-
                 ctx.fillStyle = '#ffff00';
                 bullets.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI*2); ctx.fill(); });
-
                 for (let id in players) {
                     const p = players[id];
                     if (p.dead) continue;
@@ -208,7 +185,6 @@
                     ctx.fillStyle = '#00ff00'; ctx.fillRect(p.x, p.y - 15, (p.hp / 3) * 40, 6);
                 }
                 ctx.restore();
-
                 ctx.strokeStyle = '#0f0'; ctx.lineWidth = 2; ctx.beginPath();
                 ctx.moveTo(mousePos.x - 15, mousePos.y); ctx.lineTo(mousePos.x + 15, mousePos.y);
                 ctx.moveTo(mousePos.x, mousePos.y - 15); ctx.lineTo(mousePos.x, mousePos.y + 15); ctx.stroke();
