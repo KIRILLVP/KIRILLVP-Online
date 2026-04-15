@@ -14,21 +14,20 @@ let bullets = [];
 const MAP_SIZE = 2000;
 const obstacles = [];
 
-// Проверка свободного места для генерации
-function isAreaClear(x, y, w, h, padding = 40) {
+// Проверка коллизий для генерации
+function isAreaClear(x, y, w, h, padding = 45) {
     return !obstacles.some(o => 
         x < o.x + o.w + padding && x + w + padding > o.x &&
         y < o.y + o.h + padding && y + h + padding > o.y
     );
 }
 
-// Стены карты
+// Стены
 obstacles.push({ x: 0, y: 0, w: MAP_SIZE, h: 20, type: 'wall' });
 obstacles.push({ x: 0, y: MAP_SIZE - 20, w: MAP_SIZE, h: 20, type: 'wall' });
 obstacles.push({ x: 0, y: 0, w: 20, h: MAP_SIZE, type: 'wall' });
 obstacles.push({ x: MAP_SIZE - 20, y: 0, w: 20, h: MAP_SIZE, type: 'wall' });
 
-// Генерация 70 объектов (коробки и стены) без наслоений
 let attempts = 0;
 while (obstacles.length < 75 && attempts < 1500) {
     const isBox = Math.random() > 0.6;
@@ -36,14 +35,12 @@ while (obstacles.length < 75 && attempts < 1500) {
     const h = isBox ? 45 : 50 + Math.random() * 150;
     const x = Math.random() * (MAP_SIZE - 250) + 50;
     const y = Math.random() * (MAP_SIZE - 250) + 50;
-
-    if (isAreaClear(x, y, w, h, 45)) {
+    if (isAreaClear(x, y, w, h, 50)) {
         obstacles.push({ x, y, w, h, type: isBox ? 'box' : 'wall' });
     }
     attempts++;
 }
 
-// Функция безопасного спавна игроков
 function getSafeSpawn() {
     let sx, sy, safe = false;
     while (!safe) {
@@ -56,15 +53,11 @@ function getSafeSpawn() {
 
 io.on('connection', (socket) => {
     const spawn = getSafeSpawn();
-    
-    // Генерация уникального цвета
     let color;
     let isUnique = false;
-    let cAttempts = 0;
-    while (!isUnique && cAttempts < 100) {
+    while (!isUnique) {
         color = `hsl(${Math.random() * 360}, 85%, 60%)`;
         isUnique = !Object.values(players).some(p => p.color === color);
-        cAttempts++;
     }
 
     players[socket.id] = {
@@ -97,9 +90,8 @@ io.on('connection', (socket) => {
 
     socket.on('shoot', (target) => {
         const p = players[socket.id];
-        const now = Date.now();
-        if (!p || p.dead || now - p.lastShot < 400) return;
-        p.lastShot = now;
+        if (!p || p.dead || Date.now() - p.lastShot < 400) return;
+        p.lastShot = Date.now();
         const angle = Math.atan2(target.y - (p.y + 20), target.x - (p.x + 20));
         bullets.push({ id: socket.id, x: p.x + 20, y: p.y + 20, vx: Math.cos(angle) * 12, vy: Math.sin(angle) * 12, life: 100 });
         socket.emit('playShotSound'); 
@@ -124,14 +116,16 @@ setInterval(() => {
                 if (b.x > p.x && b.x < p.x + 40 && b.y > p.y && b.y < p.y + 40) {
                     p.hp -= 1; b.life = 0;
                     
-                    // Жертва слышит ВСЕГДА
+                    // Звук жертве
                     io.to(id).emit('hitEffect'); 
                     
-                    // Стрелок слышит только если видит цель (дистанция 1100 пикселей)
-                    const shooterData = players[b.id];
-                    if (shooterData) {
-                        const dist = Math.sqrt(Math.pow(p.x - shooterData.x, 2) + Math.pow(p.y - shooterData.y, 2));
-                        if (dist < 1100) {
+                    // Звук стрелку (ТОЧНЫЙ ПРЯМОУГОЛЬНИК ВИДИМОСТИ)
+                    const shooter = players[b.id];
+                    if (shooter) {
+                        const diffX = Math.abs(p.x - shooter.x);
+                        const diffY = Math.abs(p.y - shooter.y);
+                        // 1000 по горизонтали, 600 по вертикали от центра
+                        if (diffX < 1000 && diffY < 600) {
                             io.to(b.id).emit('hitEffect');
                         }
                     }
@@ -153,6 +147,6 @@ setInterval(() => {
     });
     bullets = bullets.filter(b => b.life > 0);
     io.emit('update', { players, bullets });
-}, 15);
+}, 16);
 
 server.listen(process.env.PORT || 3000);
