@@ -13,33 +13,48 @@ let players = {};
 let bullets = [];
 const MAP_SIZE = 2000;
 
-// Твои препятствия (вернул как были + добавил стенки)
-const obstacles = [
-    { x: 400, y: 300, w: 200, h: 50 },
-    { x: 800, y: 600, w: 50, h: 300 },
-    { x: 200, y: 800, w: 300, h: 40 },
-    { x: 1200, y: 200, w: 40, h: 400 },
-    { x: 1500, y: 1500, w: 200, h: 200 },
-    // Границы карты (стены)
-    { x: 0, y: 0, w: MAP_SIZE, h: 10 },
-    { x: 0, y: MAP_SIZE - 10, w: MAP_SIZE, h: 10 },
-    { x: 0, y: 0, w: 10, h: MAP_SIZE },
-    { x: MAP_SIZE - 10, y: 0, w: 10, h: MAP_SIZE }
-];
+// ГЕНЕРАЦИЯ ПРЕПЯТСТВИЙ
+const obstacles = [];
+// Границы (стены)
+obstacles.push({ x: 0, y: 0, w: MAP_SIZE, h: 15, type: 'wall' });
+obstacles.push({ x: 0, y: MAP_SIZE - 15, w: MAP_SIZE, h: 15, type: 'wall' });
+obstacles.push({ x: 0, y: 0, w: 15, h: MAP_SIZE, type: 'wall' });
+obstacles.push({ x: MAP_SIZE - 15, y: 0, w: 15, h: MAP_SIZE, type: 'wall' });
+
+// Случайные препятствия и коробки (около 60 штук)
+for (let i = 0; i < 60; i++) {
+    const isBox = Math.random() > 0.6;
+    const w = isBox ? 40 : 40 + Math.random() * 150;
+    const h = isBox ? 40 : 40 + Math.random() * 150;
+    obstacles.push({
+        x: Math.random() * (MAP_SIZE - 200) + 100,
+        y: Math.random() * (MAP_SIZE - 200) + 100,
+        w: w,
+        h: h,
+        type: isBox ? 'box' : 'wall'
+    });
+}
 
 io.on('connection', (socket) => {
     players[socket.id] = {
-        x: 100 + Math.random() * (MAP_SIZE - 200),
-        y: 100 + Math.random() * (MAP_SIZE - 200),
+        x: 100,
+        y: 100,
         color: `hsl(${Math.random() * 360}, 70%, 50%)`,
         hp: 3,
         dead: false,
-        name: "#" + socket.id.substr(0, 5), // Вернул номер вместо имени
+        name: "Player #" + socket.id.substr(0, 5),
         lastShot: 0
     };
 
     socket.emit('init', { obstacles, mapSize: MAP_SIZE });
     io.emit('updateOnline', Object.keys(players).length);
+
+    // Установка имени
+    socket.on('setNickname', (name) => {
+        if (name && name.trim().length > 0) {
+            players[socket.id].name = name.trim().substring(0, 12);
+        }
+    });
 
     socket.on('move', (data) => {
         const p = players[socket.id];
@@ -49,8 +64,6 @@ io.on('connection', (socket) => {
         if (len > 0) {
             let dx = (data.x / len) * speed;
             let dy = (data.y / len) * speed;
-            
-            // Проверка столкновений со всеми препятствиями
             if (!obstacles.some(o => p.x + dx < o.x + o.w && p.x + dx + 40 > o.x && p.y < o.y + o.h && p.y + 40 > o.y)) p.x += dx;
             if (!obstacles.some(o => p.x < o.x + o.w && p.x + 40 > o.x && p.y + dy < o.y + o.h && p.y + dy + 40 > o.y)) p.y += dy;
         }
@@ -60,19 +73,9 @@ io.on('connection', (socket) => {
         const p = players[socket.id];
         const now = Date.now();
         if (!p || p.dead || now - p.lastShot < 400) return;
-
         p.lastShot = now;
         const angle = Math.atan2(target.y - (p.y + 20), target.x - (p.x + 20));
-        
-        bullets.push({
-            id: socket.id,
-            x: p.x + 20,
-            y: p.y + 20,
-            vx: Math.cos(angle) * 12,
-            vy: Math.sin(angle) * 12,
-            life: 80
-        });
-
+        bullets.push({ id: socket.id, x: p.x + 20, y: p.y + 20, vx: Math.cos(angle) * 12, vy: Math.sin(angle) * 12, life: 80 });
         io.emit('playShotSound', { x: p.x, y: p.y });
     });
 
@@ -83,14 +86,9 @@ io.on('connection', (socket) => {
 });
 
 setInterval(() => {
-    bullets.forEach((b, index) => {
-        b.x += b.vx;
-        b.y += b.vy;
-        b.life--;
-    });
+    bullets.forEach(b => { b.x += b.vx; b.y += b.vy; b.life--; });
     bullets = bullets.filter(b => b.life > 0);
     io.emit('update', { players, bullets });
 }, 15);
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running`));
+server.listen(process.env.PORT || 3000);
