@@ -105,7 +105,7 @@
                 if (players[socket.id]) deathScreen.style.display = players[socket.id].dead ? 'block' : 'none';
             });
 
-            // ЗВУК ВЫСТРЕЛА ОТ СЕРВЕРА
+            // Звук выстрела ТОЛЬКО при сигнале от сервера
             socket.on('playShotSound', (data) => {
                 shotSound.currentTime = 0;
                 shotSound.play().catch(() => {});
@@ -126,7 +126,7 @@
             if (!socket || !gameActive) return;
             const me = players[socket.id];
             if (!me || me.dead) return;
-            // ЗДЕСЬ УДАЛЕН ПРОИГРЫВАТЕЛЬ ЗВУКА, ТЕПЕРЬ ОН В setupSocketHandlers
+            // Звук здесь удален, он придет от сервера
             const camX = me.x - canvas.width / 2;
             const camY = me.y - canvas.height / 2;
             socket.emit('shoot', { x: mousePos.x + camX, y: mousePos.y + camY });
@@ -140,6 +140,7 @@
                 let vx = 0, vy = 0;
                 if (keys['KeyW']) vy -= 1; if (keys['KeyS']) vy += 1;
                 if (keys['KeyA']) vx -= 1; if (keys['KeyD']) vx += 1;
+                
                 if ((vx !== 0 || vy !== 0) && !me.dead) {
                     const speed = 5;
                     const len = Math.sqrt(vx * vx + vy * vy);
@@ -149,6 +150,7 @@
                     if (!obstacles.some(o => me.x < o.x + o.w && me.x + 40 > o.x && me.y + dy < o.y + o.h && me.y + dy + 40 > o.y)) me.y += dy;
                     socket.emit('move', { x: vx, y: vy });
                 }
+
                 for (let id in players) {
                     let p = players[id];
                     if (id !== socket.id) {
@@ -159,19 +161,28 @@
                         else { p.x += (p.targetX - p.x) * 0.1; p.y += (p.targetY - p.y) * 0.1; }
                     }
                 }
+
                 const camX = Math.floor(me.x - canvas.width / 2);
                 const camY = Math.floor(me.y - canvas.height / 2);
                 ctx.save();
                 ctx.translate(-camX, -camY);
+
+                // Сетка
                 ctx.strokeStyle = '#222';
                 for(let i=0; i<=MAP_SIZE; i+=100) {
                     ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, MAP_SIZE); ctx.stroke();
                     ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(MAP_SIZE, i); ctx.stroke();
                 }
+
+                // Отрисовка препятствий
                 ctx.fillStyle = '#444';
-                obstacles.forEach(o => { ctx.fillRect(o.x, o.y, o.w, o.h); ctx.strokeRect(o.x, o.y, o.w, o.h); });
+                obstacles.forEach(o => { ctx.fillRect(o.x, o.y, o.w, o.h); ctx.strokeStyle = '#000'; ctx.strokeRect(o.x, o.y, o.w, o.h); });
+
+                // Пули
                 ctx.fillStyle = '#ffff00';
                 bullets.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI*2); ctx.fill(); });
+
+                // Игроки
                 for (let id in players) {
                     const p = players[id];
                     if (p.dead) continue;
@@ -185,6 +196,8 @@
                     ctx.fillStyle = '#00ff00'; ctx.fillRect(p.x, p.y - 15, (p.hp / 3) * 40, 6);
                 }
                 ctx.restore();
+
+                // Прицел
                 ctx.strokeStyle = '#0f0'; ctx.lineWidth = 2; ctx.beginPath();
                 ctx.moveTo(mousePos.x - 15, mousePos.y); ctx.lineTo(mousePos.x + 15, mousePos.y);
                 ctx.moveTo(mousePos.x, mousePos.y - 15); ctx.lineTo(mousePos.x, mousePos.y + 15); ctx.stroke();
