@@ -15,17 +15,17 @@ const MAP_SIZE = 2000;
 
 // ГЕНЕРАЦИЯ ПРЕПЯТСТВИЙ
 const obstacles = [];
-// Границы (стены)
+// Границы карты
 obstacles.push({ x: 0, y: 0, w: MAP_SIZE, h: 15, type: 'wall' });
 obstacles.push({ x: 0, y: MAP_SIZE - 15, w: MAP_SIZE, h: 15, type: 'wall' });
 obstacles.push({ x: 0, y: 0, w: 15, h: MAP_SIZE, type: 'wall' });
 obstacles.push({ x: MAP_SIZE - 15, y: 0, w: 15, h: MAP_SIZE, type: 'wall' });
 
-// Случайные препятствия и коробки (около 60 штук)
+// Заполняем карту коробками и стенами (60 штук)
 for (let i = 0; i < 60; i++) {
     const isBox = Math.random() > 0.6;
-    const w = isBox ? 40 : 40 + Math.random() * 150;
-    const h = isBox ? 40 : 40 + Math.random() * 150;
+    const w = isBox ? 45 : 40 + Math.random() * 160;
+    const h = isBox ? 45 : 40 + Math.random() * 160;
     obstacles.push({
         x: Math.random() * (MAP_SIZE - 200) + 100,
         y: Math.random() * (MAP_SIZE - 200) + 100,
@@ -37,8 +37,8 @@ for (let i = 0; i < 60; i++) {
 
 io.on('connection', (socket) => {
     players[socket.id] = {
-        x: 100,
-        y: 100,
+        x: 150 + Math.random() * 300,
+        y: 150 + Math.random() * 300,
         color: `hsl(${Math.random() * 360}, 70%, 50%)`,
         hp: 3,
         dead: false,
@@ -49,7 +49,6 @@ io.on('connection', (socket) => {
     socket.emit('init', { obstacles, mapSize: MAP_SIZE });
     io.emit('updateOnline', Object.keys(players).length);
 
-    // Установка имени
     socket.on('setNickname', (name) => {
         if (name && name.trim().length > 0) {
             players[socket.id].name = name.trim().substring(0, 12);
@@ -74,9 +73,18 @@ io.on('connection', (socket) => {
         const now = Date.now();
         if (!p || p.dead || now - p.lastShot < 400) return;
         p.lastShot = now;
+        
         const angle = Math.atan2(target.y - (p.y + 20), target.x - (p.x + 20));
-        bullets.push({ id: socket.id, x: p.x + 20, y: p.y + 20, vx: Math.cos(angle) * 12, vy: Math.sin(angle) * 12, life: 80 });
-        io.emit('playShotSound', { x: p.x, y: p.y });
+        bullets.push({ 
+            id: socket.id, 
+            x: p.x + 20, 
+            y: p.y + 20, 
+            vx: Math.cos(angle) * 12, 
+            vy: Math.sin(angle) * 12, 
+            life: 80 
+        });
+
+        socket.emit('playShotSound'); 
     });
 
     socket.on('disconnect', () => {
@@ -85,10 +93,52 @@ io.on('connection', (socket) => {
     });
 });
 
+// ГЛАВНЫЙ ЦИКЛ ОБСЧЕТА (УРОН И ФИЗИКА)
 setInterval(() => {
-    bullets.forEach(b => { b.x += b.vx; b.y += b.vy; b.life--; });
+    bullets.forEach((b) => {
+        b.x += b.vx;
+        b.y += b.vy;
+        b.life--;
+
+        // Столкновение с препятствиями
+        for (let o of obstacles) {
+            if (b.x > o.x && b.x < o.x + o.w && b.y > o.y && b.y < o.y + o.h) {
+                b.life = 0;
+                break;
+            }
+        }
+
+        // Попадание по игрокам
+        if (b.life > 0) {
+            for (let id in players) {
+                let p = players[id];
+                if (p.dead || id === b.id) continue;
+
+                if (b.x > p.x && b.x < p.x + 40 && b.y > p.y && b.y < p.y + 40) {
+                    p.hp -= 1;
+                    b.life = 0;
+                    
+                    io.to(id).emit('hitEffect');
+                    io.to(b.id).emit('hitEffect');
+
+                    if (p.hp <= 0) {
+                        p.dead = true;
+                        setTimeout(() => {
+                            p.hp = 3;
+                            p.dead = false;
+                            p.x = 100 + Math.random() * (MAP_SIZE - 200);
+                            p.y = 100 + Math.random() * (MAP_SIZE - 200);
+                        }, 3000);
+                    }
+                    break;
+                }
+            }
+        }
+    });
+
     bullets = bullets.filter(b => b.life > 0);
     io.emit('update', { players, bullets });
 }, 15);
 
-server.listen(process.env.PORT || 3000);
+const PORT = process.env.PORT || 3000;
+server.listen(PORT);
