@@ -12,21 +12,30 @@ app.use(express.static(path.join(__dirname, 'public')));
 let players = {};
 let bullets = [];
 const MAP_SIZE = 2000;
+
+// Твои препятствия (вернул как были + добавил стенки)
 const obstacles = [
     { x: 400, y: 300, w: 200, h: 50 },
     { x: 800, y: 600, w: 50, h: 300 },
-    { x: 200, y: 800, w: 300, h: 40 }
+    { x: 200, y: 800, w: 300, h: 40 },
+    { x: 1200, y: 200, w: 40, h: 400 },
+    { x: 1500, y: 1500, w: 200, h: 200 },
+    // Границы карты (стены)
+    { x: 0, y: 0, w: MAP_SIZE, h: 10 },
+    { x: 0, y: MAP_SIZE - 10, w: MAP_SIZE, h: 10 },
+    { x: 0, y: 0, w: 10, h: MAP_SIZE },
+    { x: MAP_SIZE - 10, y: 0, w: 10, h: MAP_SIZE }
 ];
 
 io.on('connection', (socket) => {
     players[socket.id] = {
-        x: Math.random() * (MAP_SIZE - 40),
-        y: Math.random() * (MAP_SIZE - 40),
+        x: 100 + Math.random() * (MAP_SIZE - 200),
+        y: 100 + Math.random() * (MAP_SIZE - 200),
         color: `hsl(${Math.random() * 360}, 70%, 50%)`,
         hp: 3,
         dead: false,
-        name: "Player " + socket.id.substr(0, 4),
-        lastShot: 0 // Для задержки между выстрелами
+        name: "#" + socket.id.substr(0, 5), // Вернул номер вместо имени
+        lastShot: 0
     };
 
     socket.emit('init', { obstacles, mapSize: MAP_SIZE });
@@ -38,15 +47,18 @@ io.on('connection', (socket) => {
         const speed = 5;
         const len = Math.sqrt(data.x * data.x + data.y * data.y);
         if (len > 0) {
-            p.x += (data.x / len) * speed;
-            p.y += (data.y / len) * speed;
+            let dx = (data.x / len) * speed;
+            let dy = (data.y / len) * speed;
+            
+            // Проверка столкновений со всеми препятствиями
+            if (!obstacles.some(o => p.x + dx < o.x + o.w && p.x + dx + 40 > o.x && p.y < o.y + o.h && p.y + 40 > o.y)) p.x += dx;
+            if (!obstacles.some(o => p.x < o.x + o.w && p.x + 40 > o.x && p.y + dy < o.y + o.h && p.y + dy + 40 > o.y)) p.y += dy;
         }
     });
 
     socket.on('shoot', (target) => {
         const p = players[socket.id];
         const now = Date.now();
-        // Задержка выстрела (например, 400 мс)
         if (!p || p.dead || now - p.lastShot < 400) return;
 
         p.lastShot = now;
@@ -56,12 +68,11 @@ io.on('connection', (socket) => {
             id: socket.id,
             x: p.x + 20,
             y: p.y + 20,
-            vx: Math.cos(angle) * 10,
-            vy: Math.sin(angle) * 10,
-            life: 100
+            vx: Math.cos(angle) * 12,
+            vy: Math.sin(angle) * 12,
+            life: 80
         });
 
-        // ОТПРАВЛЯЕМ СИГНАЛ ЗВУКА ВСЕМ (чтобы слышать и себя, и других)
         io.emit('playShotSound', { x: p.x, y: p.y });
     });
 
@@ -76,11 +87,10 @@ setInterval(() => {
         b.x += b.vx;
         b.y += b.vy;
         b.life--;
-        // Тут могла бы быть логика столкновений...
     });
     bullets = bullets.filter(b => b.life > 0);
     io.emit('update', { players, bullets });
 }, 15);
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`Server running`));
