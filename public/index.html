@@ -31,7 +31,7 @@
 <body>
     <div id="lobby-overlay">
         <h1 style="font-size: 50px; color: #00ff00; margin-bottom: 10px;">KIRILLVP ONLINE</h1>
-        <input type="text" id="nick-input" placeholder="Enter your Nickname..." maxlength="12">
+        <input type="text" id="nick-input" placeholder="Enter Nickname..." maxlength="12">
         <p style="margin-bottom: 20px; opacity: 0.8;">Select a server region:</p>
         <button class="server-btn" onclick="joinGame('https://kirillvp-online-frankfurt.onrender.com', 'Frankfurt (EU Central)')">Frankfurt (EU Central)</button>
         <button class="server-btn" onclick="joinGame('https://kirillvp-online.onrender.com', 'Virginia (US East)')" style="border-color: #0088ff;">Virginia (US East)</button>
@@ -68,17 +68,11 @@
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
 
-        let players = {}; 
-        let bullets = [];
-        let obstacles = [];
-        let MAP_SIZE = 2000;
-        let mousePos = { x: 0, y: 0 };
-        const keys = {};
-        let gameActive = false;
+        let players = {}; let bullets = []; let obstacles = [];
+        let MAP_SIZE = 2000; let mousePos = { x: 0, y: 0 };
+        const keys = {}; let gameActive = false;
 
-        bgMusic.volume = 0.2;
-        shotSound.volume = 0.4;
-        damageSound.volume = 0.5;
+        bgMusic.volume = 0.2; shotSound.volume = 0.4; damageSound.volume = 0.5;
 
         function joinGame(serverUrl, regionName) {
             const nick = nickInput.value;
@@ -87,7 +81,7 @@
             regionDisplay.innerText = 'Region: ' + regionName;
             bgMusic.play().catch(() => {});
             socket = io(serverUrl, { transports: ['websocket'] });
-            socket.emit('setNickname', nick); // Отправляем ник серверу
+            socket.emit('setNickname', nick);
             setupSocketHandlers();
         }
 
@@ -97,9 +91,8 @@
             socket.on('update', (data) => { 
                 for (let id in data.players) {
                     const sP = data.players[id];
-                    if (!players[id]) {
-                        players[id] = { ...sP, targetX: sP.x, targetY: sP.y };
-                    } else {
+                    if (!players[id]) { players[id] = { ...sP, targetX: sP.x, targetY: sP.y }; } 
+                    else {
                         players[id].targetX = sP.x; players[id].targetY = sP.y;
                         players[id].hp = sP.hp; players[id].dead = sP.dead;
                         players[id].color = sP.color; players[id].name = sP.name;
@@ -110,20 +103,15 @@
                 if (players[socket.id]) deathScreen.style.display = players[socket.id].dead ? 'block' : 'none';
             });
             socket.on('playShotSound', () => { shotSound.currentTime = 0; shotSound.play().catch(() => {}); });
-            socket.on('hitEffect', (data) => {
-                if (data.victimId === socket.id || data.attackerId === socket.id) {
-                    damageSound.currentTime = 0; damageSound.play().catch(() => {});
-                }
-            });
+            socket.on('hitEffect', () => { damageSound.currentTime = 0; damageSound.play().catch(() => {}); });
         }
 
         window.addEventListener('keydown', (e) => { keys[e.code] = true; });
         window.addEventListener('keyup', (e) => { keys[e.code] = false; });
         window.addEventListener('mousemove', (e) => { mousePos.x = e.clientX; mousePos.y = e.clientY; });
         window.addEventListener('mousedown', () => {
-            if (!socket || !gameActive) return;
+            if (!socket || !gameActive || (players[socket.id] && players[socket.id].dead)) return;
             const me = players[socket.id];
-            if (!me || me.dead) return;
             const camX = me.x - canvas.width / 2;
             const camY = me.y - canvas.height / 2;
             socket.emit('shoot', { x: mousePos.x + camX, y: mousePos.y + camY });
@@ -138,10 +126,8 @@
                 if (keys['KeyW']) vy -= 1; if (keys['KeyS']) vy += 1;
                 if (keys['KeyA']) vx -= 1; if (keys['KeyD']) vx += 1;
                 if ((vx !== 0 || vy !== 0) && !me.dead) {
-                    const speed = 5;
-                    const len = Math.sqrt(vx * vx + vy * vy);
-                    const dx = (vx / len) * speed;
-                    const dy = (vy / len) * speed;
+                    const speed = 5; const len = Math.sqrt(vx * vx + vy * vy);
+                    const dx = (vx / len) * speed; const dy = (vy / len) * speed;
                     if (!obstacles.some(o => me.x + dx < o.x + o.w && me.x + dx + 40 > o.x && me.y < o.y + o.h && me.y + 40 > o.y)) me.x += dx;
                     if (!obstacles.some(o => me.x < o.x + o.w && me.x + 40 > o.x && me.y + dy < o.y + o.h && me.y + dy + 40 > o.y)) me.y += dy;
                     socket.emit('move', { x: vx, y: vy });
@@ -163,19 +149,15 @@
                     ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, MAP_SIZE); ctx.stroke();
                     ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(MAP_SIZE, i); ctx.stroke();
                 }
-
-                // ПРЕПЯТСТВИЯ
                 obstacles.forEach(o => {
-                    ctx.fillStyle = o.type === 'box' ? '#5d4037' : '#444'; // Коричневый для коробок
+                    ctx.fillStyle = o.type === 'box' ? '#5d4037' : '#444';
                     ctx.fillRect(o.x, o.y, o.w, o.h);
                     ctx.strokeStyle = '#000'; ctx.strokeRect(o.x, o.y, o.w, o.h);
                 });
-
                 ctx.fillStyle = '#ffff00';
                 bullets.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI*2); ctx.fill(); });
                 for (let id in players) {
-                    const p = players[id];
-                    if (p.dead) continue;
+                    const p = players[id]; if (p.dead) continue;
                     ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 40, 40);
                     ctx.strokeStyle = (id === socket.id) ? '#fff' : '#000';
                     ctx.lineWidth = 2; ctx.strokeRect(p.x, p.y, 40, 40);
