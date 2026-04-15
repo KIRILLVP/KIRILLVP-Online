@@ -6,25 +6,47 @@
         body { margin: 0; background: #111; overflow: hidden; font-family: 'Segoe UI', Arial, sans-serif; }
         #ui { position: absolute; top: 20px; left: 20px; color: white; pointer-events: none; z-index: 10; text-shadow: 1px 1px 2px black; }
         #online-count { font-size: 20px; font-weight: bold; color: #00ff00; margin-bottom: 2px; }
+        #current-region { font-size: 14px; opacity: 0.8; color: #aaa; margin-bottom: 10px; }
         #death-screen { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #ff4444; font-size: 80px; font-weight: bold; display: none; text-shadow: 0 0 20px black; z-index: 20; }
-        #lobby-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(10, 10, 10, 0.95); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; color: white; }
-        #nick-input { padding: 12px; margin-bottom: 20px; width: 280px; background: #222; border: 2px solid #555; color: white; border-radius: 5px; text-align: center; }
-        .server-btn { padding: 15px 40px; margin: 10px; font-size: 18px; cursor: pointer; border: 2px solid #00ff00; background: transparent; color: white; border-radius: 8px; transition: 0.3s; }
-        .server-btn:hover { background: #00ff00; color: black; }
+        
+        #lobby-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 10, 10, 0.95);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 1000; color: white; text-align: center;
+        }
+        #nick-input {
+            padding: 12px; margin-bottom: 20px; width: 280px; background: #222; 
+            border: 2px solid #555; color: white; border-radius: 5px; font-size: 16px; text-align: center;
+        }
+        #nick-input:focus { border-color: #00ff00; outline: none; }
+        .server-btn {
+            padding: 15px 40px; margin: 10px; font-size: 18px; font-weight: bold;
+            cursor: pointer; border: 2px solid #00ff00; background: transparent;
+            color: white; border-radius: 8px; width: 320px; transition: 0.3s;
+        }
+        .server-btn:hover { background: #00ff00; color: black; box-shadow: 0 0 20px #00ff00; }
     </style>
 </head>
 <body>
     <div id="lobby-overlay">
-        <h1>KIRILLVP ONLINE</h1>
+        <h1 style="font-size: 50px; color: #00ff00; margin-bottom: 10px;">KIRILLVP ONLINE</h1>
         <input type="text" id="nick-input" placeholder="Enter Nickname..." maxlength="12">
-        <button class="server-btn" onclick="joinGame('https://kirillvp-online.onrender.com')">Join Server</button>
+        <p style="margin-bottom: 20px; opacity: 0.8;">Select a server region:</p>
+        <button class="server-btn" onclick="joinGame('https://kirillvp-online-frankfurt.onrender.com', 'Frankfurt (EU Central)')">Frankfurt (EU Central)</button>
+        <button class="server-btn" onclick="joinGame('https://kirillvp-online.onrender.com', 'Virginia (US East)')" style="border-color: #0088ff;">Virginia (US East)</button>
+        <button class="server-btn" onclick="joinGame('https://kirillvp-online-singapore.onrender.com', 'Singapore (Asia)')" style="border-color: #ffcc00;">Singapore (Asia)</button>
     </div>
 
     <audio id="bgMusic" loop><source src="Funny-Pluck.mp3" type="audio/mpeg"></audio>
     <audio id="shotSound"><source src="shot.mp3" type="audio/mpeg"></audio>
     <audio id="damageSound"><source src="damage.mp3" type="audio/mpeg"></audio>
 
-    <div id="ui"><div id="online-count">Online: 0</div></div>
+    <div id="ui">
+        <div id="online-count">Online: 0</div>
+        <div id="current-region">Region: Not connected</div>
+        <div id="controls-hint">WASD - Move | MOUSE - Shoot</div>
+    </div>
     <div id="death-screen">YOU DIED</div>
     <canvas id="gameCanvas"></canvas>
 
@@ -35,6 +57,7 @@
         const ctx = canvas.getContext('2d');
         const deathScreen = document.getElementById('death-screen');
         const onlineDisplay = document.getElementById('online-count');
+        const regionDisplay = document.getElementById('current-region');
         const lobbyOverlay = document.getElementById('lobby-overlay');
         const nickInput = document.getElementById('nick-input');
         
@@ -48,126 +71,119 @@
         let players = {}; let bullets = []; let obstacles = [];
         let MAP_SIZE = 2000; let mousePos = { x: 0, y: 0 };
         const keys = {}; let gameActive = false;
-        let damageFlash = 0;
+        let damageIntensity = 0; // Для красного экрана
 
         bgMusic.volume = 0.2; shotSound.volume = 0.4; damageSound.volume = 0.5;
 
-        function joinGame(serverUrl) {
+        function joinGame(serverUrl, regionName) {
+            const nick = nickInput.value;
             lobbyOverlay.style.display = 'none';
             gameActive = true;
+            regionDisplay.innerText = 'Region: ' + regionName;
             bgMusic.play().catch(() => {});
             socket = io(serverUrl, { transports: ['websocket'] });
-            socket.emit('setNickname', nickInput.value || "Player");
-            
+            socket.emit('setNickname', nick);
+            setupSocketHandlers();
+        }
+
+        function setupSocketHandlers() {
             socket.on('init', (data) => { obstacles = data.obstacles; MAP_SIZE = data.mapSize; });
             socket.on('updateOnline', (count) => { onlineDisplay.innerText = 'Online: ' + count; });
             socket.on('update', (data) => { 
                 for (let id in data.players) {
                     const sP = data.players[id];
-                    if (!players[id]) { 
-                        players[id] = { ...sP, targetX: sP.x, targetY: sP.y }; 
-                    } else {
-                        Object.assign(players[id], { targetX: sP.x, targetY: sP.y, hp: sP.hp, dead: sP.dead, color: sP.color, name: sP.name });
+                    if (!players[id]) { players[id] = { ...sP, targetX: sP.x, targetY: sP.y }; } 
+                    else {
+                        players[id].targetX = sP.x; players[id].targetY = sP.y;
+                        players[id].hp = sP.hp; players[id].dead = sP.dead;
+                        players[id].color = sP.color; players[id].name = sP.name;
                     }
                 }
-                for (let id in players) if (!data.players[id]) delete players[id];
+                for (let id in players) { if (!data.players[id]) delete players[id]; }
                 bullets = data.bullets; 
                 if (players[socket.id]) deathScreen.style.display = players[socket.id].dead ? 'block' : 'none';
             });
-            socket.on('playShotSound', () => { shotSound.currentTime = 0; shotSound.play().catch(()=>{}); });
+            socket.on('playShotSound', () => { shotSound.currentTime = 0; shotSound.play().catch(() => {}); });
             socket.on('hitEffect', () => { 
-                damageSound.currentTime = 0; damageSound.play().catch(()=>{}); 
-                damageFlash = 0.4; 
+                damageSound.currentTime = 0; 
+                damageSound.play().catch(() => {}); 
+                damageIntensity = 0.5; // Активируем покраснение
             });
         }
 
-        window.addEventListener('keydown', (e) => keys[e.code] = true);
-        window.addEventListener('keyup', (e) => keys[e.code] = false);
+        window.addEventListener('keydown', (e) => { keys[e.code] = true; });
+        window.addEventListener('keyup', (e) => { keys[e.code] = false; });
         window.addEventListener('mousemove', (e) => { mousePos.x = e.clientX; mousePos.y = e.clientY; });
         window.addEventListener('mousedown', () => {
             if (!socket || !gameActive || (players[socket.id] && players[socket.id].dead)) return;
             const me = players[socket.id];
-            socket.emit('shoot', { x: mousePos.x + (me.x - canvas.width/2), y: mousePos.y + (me.y - canvas.height/2) });
+            const camX = me.x - canvas.width / 2;
+            const camY = me.y - canvas.height / 2;
+            socket.emit('shoot', { x: mousePos.x + camX, y: mousePos.y + camY });
         });
 
         function draw() {
             if (!gameActive || !socket) { requestAnimationFrame(draw); return; }
             const me = players[socket.id];
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
             if (me) {
-                // Движение: теперь только отправляем на сервер, не считаем коллизии тут (пусть сервер решает)
                 let vx = 0, vy = 0;
                 if (keys['KeyW']) vy -= 1; if (keys['KeyS']) vy += 1;
                 if (keys['KeyA']) vx -= 1; if (keys['KeyD']) vx += 1;
                 if ((vx !== 0 || vy !== 0) && !me.dead) {
+                    const speed = 5; const len = Math.sqrt(vx * vx + vy * vy);
+                    const dx = (vx / len) * speed; const dy = (vy / len) * speed;
+                    if (!obstacles.some(o => me.x + dx < o.x + o.w && me.x + dx + 40 > o.x && me.y < o.y + o.h && me.y + 40 > o.y)) me.x += dx;
+                    if (!obstacles.some(o => me.x < o.x + o.w && me.x + 40 > o.x && me.y + dy < o.y + o.h && me.y + dy + 40 > o.y)) me.y += dy;
                     socket.emit('move', { x: vx, y: vy });
                 }
-
-                // Плавное движение (Интерполяция)
                 for (let id in players) {
                     let p = players[id];
-                    let lerp = (id === socket.id) ? 0.3 : 0.2;
-                    p.x += (p.targetX - p.x) * lerp;
-                    p.y += (p.targetY - p.y) * lerp;
+                    if (id !== socket.id) { p.x += (p.targetX - p.x) * 0.25; p.y += (p.targetY - p.y) * 0.25; } 
+                    else {
+                        const dist = Math.sqrt((p.targetX - p.x)**2 + (p.targetY - p.y)**2);
+                        if (dist > 50) { p.x = p.targetX; p.y = p.targetY; } 
+                        else { p.x += (p.targetX - p.x) * 0.1; p.y += (p.targetY - p.y) * 0.1; }
+                    }
                 }
-
-                const camX = me.x - canvas.width / 2;
-                const camY = me.y - canvas.height / 2;
-
-                ctx.save();
-                ctx.translate(-camX, -camY);
-
-                // Сетка
+                const camX = Math.floor(me.x - canvas.width / 2);
+                const camY = Math.floor(me.y - canvas.height / 2);
+                
+                ctx.save(); ctx.translate(-camX, -camY);
                 ctx.strokeStyle = '#222';
-                ctx.lineWidth = 1;
                 for(let i=0; i<=MAP_SIZE; i+=100) {
                     ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, MAP_SIZE); ctx.stroke();
                     ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(MAP_SIZE, i); ctx.stroke();
                 }
-
-                // Стены
                 obstacles.forEach(o => {
                     ctx.fillStyle = o.type === 'box' ? '#5d4037' : '#444';
                     ctx.fillRect(o.x, o.y, o.w, o.h);
+                    ctx.strokeStyle = '#000'; ctx.strokeRect(o.x, o.y, o.w, o.h);
                 });
-
-                // Пули
-                ctx.fillStyle = '#ff0';
-                bullets.forEach(b => { 
-                    ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI*2); ctx.fill(); 
-                });
-
-                // Игроки
+                ctx.fillStyle = '#ffff00';
+                bullets.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI*2); ctx.fill(); });
                 for (let id in players) {
                     const p = players[id]; if (p.dead) continue;
-                    ctx.fillStyle = p.color; 
-                    ctx.fillRect(p.x, p.y, 40, 40);
-                    
-                    // Ники и ХП
-                    ctx.fillStyle = '#fff'; 
-                    ctx.font = 'bold 14px Arial'; 
-                    ctx.textAlign = 'center';
-                    ctx.fillText(p.name, p.x + 20, p.y - 10);
-                    
-                    ctx.fillStyle = '#f00'; ctx.fillRect(p.x, p.y - 20, 40, 5);
-                    ctx.fillStyle = '#0f0'; ctx.fillRect(p.x, p.y - 20, (p.hp/3)*40, 5);
+                    ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 40, 40);
+                    ctx.strokeStyle = (id === socket.id) ? '#fff' : '#000';
+                    ctx.lineWidth = 2; ctx.strokeRect(p.x, p.y, 40, 40);
+                    ctx.fillStyle = '#fff'; ctx.font = 'bold 14px Arial'; ctx.textAlign = 'center';
+                    ctx.fillText(p.name, p.x + 20, p.y - 25);
+                    ctx.fillStyle = '#ff0000'; ctx.fillRect(p.x, p.y - 15, 40, 6);
+                    ctx.fillStyle = '#00ff00'; ctx.fillRect(p.x, p.y - 15, (p.hp / 3) * 40, 6);
                 }
                 ctx.restore();
 
-                // Эффект красного экрана при уроне
-                if (damageFlash > 0) {
-                    ctx.fillStyle = `rgba(255, 0, 0, ${damageFlash})`;
+                // ЭФФЕКТ КРАСНОГО ЭКРАНА (Плавное затухание)
+                if (damageIntensity > 0) {
+                    ctx.fillStyle = `rgba(255, 0, 0, ${damageIntensity})`;
                     ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    damageFlash -= 0.02;
+                    damageIntensity -= 0.02; // Скорость затухания
                 }
 
-                // Прицел
-                ctx.strokeStyle = '#0f0'; ctx.lineWidth = 2;
-                ctx.beginPath(); 
-                ctx.moveTo(mousePos.x - 10, mousePos.y); ctx.lineTo(mousePos.x + 10, mousePos.y);
-                ctx.moveTo(mousePos.x, mousePos.y - 10); ctx.lineTo(mousePos.x, mousePos.y + 10); 
-                ctx.stroke();
+                ctx.strokeStyle = '#0f0'; ctx.lineWidth = 2; ctx.beginPath();
+                ctx.moveTo(mousePos.x - 15, mousePos.y); ctx.lineTo(mousePos.x + 15, mousePos.y);
+                ctx.moveTo(mousePos.x, mousePos.y - 15); ctx.lineTo(mousePos.x, mousePos.y + 15); ctx.stroke();
             }
             requestAnimationFrame(draw);
         }
