@@ -71,7 +71,7 @@
         let players = {}; let bullets = []; let obstacles = [];
         let MAP_SIZE = 2000; let mousePos = { x: 0, y: 0 };
         const keys = {}; let gameActive = false;
-        let damageIntensity = 0; // Для красного экрана
+        let damageIntensity = 0; 
 
         bgMusic.volume = 0.2; shotSound.volume = 0.4; damageSound.volume = 0.5;
 
@@ -103,11 +103,20 @@
                 bullets = data.bullets; 
                 if (players[socket.id]) deathScreen.style.display = players[socket.id].dead ? 'block' : 'none';
             });
+
             socket.on('playShotSound', () => { shotSound.currentTime = 0; shotSound.play().catch(() => {}); });
+            
+            // Жертва: звук + красный экран
             socket.on('hitEffect', () => { 
                 damageSound.currentTime = 0; 
                 damageSound.play().catch(() => {}); 
-                damageIntensity = 0.5; // Активируем покраснение
+                damageIntensity = 0.5; 
+            });
+
+            // Стрелок: только звук
+            socket.on('hitSound', () => {
+                damageSound.currentTime = 0;
+                damageSound.play().catch(() => {});
             });
         }
 
@@ -150,18 +159,22 @@
                 const camY = Math.floor(me.y - canvas.height / 2);
                 
                 ctx.save(); ctx.translate(-camX, -camY);
+                // Сетка
                 ctx.strokeStyle = '#222';
                 for(let i=0; i<=MAP_SIZE; i+=100) {
                     ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, MAP_SIZE); ctx.stroke();
                     ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(MAP_SIZE, i); ctx.stroke();
                 }
+                // Препятствия
                 obstacles.forEach(o => {
                     ctx.fillStyle = o.type === 'box' ? '#5d4037' : '#444';
                     ctx.fillRect(o.x, o.y, o.w, o.h);
                     ctx.strokeStyle = '#000'; ctx.strokeRect(o.x, o.y, o.w, o.h);
                 });
+                // Пули
                 ctx.fillStyle = '#ffff00';
                 bullets.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI*2); ctx.fill(); });
+                // Игроки
                 for (let id in players) {
                     const p = players[id]; if (p.dead) continue;
                     ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 40, 40);
@@ -174,13 +187,14 @@
                 }
                 ctx.restore();
 
-                // ЭФФЕКТ КРАСНОГО ЭКРАНА (Плавное затухание)
+                // Красный экран при уроне
                 if (damageIntensity > 0) {
                     ctx.fillStyle = `rgba(255, 0, 0, ${damageIntensity})`;
                     ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    damageIntensity -= 0.02; // Скорость затухания
+                    damageIntensity -= 0.02;
                 }
 
+                // Прицел
                 ctx.strokeStyle = '#0f0'; ctx.lineWidth = 2; ctx.beginPath();
                 ctx.moveTo(mousePos.x - 15, mousePos.y); ctx.lineTo(mousePos.x + 15, mousePos.y);
                 ctx.moveTo(mousePos.x, mousePos.y - 15); ctx.lineTo(mousePos.x, mousePos.y + 15); ctx.stroke();
