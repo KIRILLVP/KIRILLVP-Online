@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>KIRILLVP Online Game</title>
+    <title>KIRILLVP Online</title>
     <style>
         body { margin: 0; background: #111; overflow: hidden; font-family: 'Segoe UI', Arial, sans-serif; }
         #ui { position: absolute; top: 20px; left: 20px; color: white; pointer-events: none; z-index: 10; text-shadow: 1px 1px 2px black; }
@@ -15,6 +15,11 @@
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             z-index: 1000; color: white; text-align: center;
         }
+        #nick-input {
+            padding: 12px; margin-bottom: 20px; width: 280px; background: #222; 
+            border: 2px solid #555; color: white; border-radius: 5px; font-size: 16px; text-align: center;
+        }
+        #nick-input:focus { border-color: #00ff00; outline: none; }
         .server-btn {
             padding: 15px 40px; margin: 10px; font-size: 18px; font-weight: bold;
             cursor: pointer; border: 2px solid #00ff00; background: transparent;
@@ -26,7 +31,8 @@
 <body>
     <div id="lobby-overlay">
         <h1 style="font-size: 50px; color: #00ff00; margin-bottom: 10px;">KIRILLVP ONLINE</h1>
-        <p style="margin-bottom: 30px; opacity: 0.8;">Select a server region:</p>
+        <input type="text" id="nick-input" placeholder="Enter your Nickname..." maxlength="12">
+        <p style="margin-bottom: 20px; opacity: 0.8;">Select a server region:</p>
         <button class="server-btn" onclick="joinGame('https://kirillvp-online-frankfurt.onrender.com', 'Frankfurt (EU Central)')">Frankfurt (EU Central)</button>
         <button class="server-btn" onclick="joinGame('https://kirillvp-online.onrender.com', 'Virginia (US East)')" style="border-color: #0088ff;">Virginia (US East)</button>
         <button class="server-btn" onclick="joinGame('https://kirillvp-online-singapore.onrender.com', 'Singapore (Asia)')" style="border-color: #ffcc00;">Singapore (Asia)</button>
@@ -53,6 +59,7 @@
         const onlineDisplay = document.getElementById('online-count');
         const regionDisplay = document.getElementById('current-region');
         const lobbyOverlay = document.getElementById('lobby-overlay');
+        const nickInput = document.getElementById('nick-input');
         
         const bgMusic = document.getElementById('bgMusic');
         const shotSound = document.getElementById('shotSound');
@@ -74,43 +81,35 @@
         damageSound.volume = 0.5;
 
         function joinGame(serverUrl, regionName) {
+            const nick = nickInput.value;
             lobbyOverlay.style.display = 'none';
             gameActive = true;
             regionDisplay.innerText = 'Region: ' + regionName;
             bgMusic.play().catch(() => {});
             socket = io(serverUrl, { transports: ['websocket'] });
+            socket.emit('setNickname', nick); // Отправляем ник серверу
             setupSocketHandlers();
         }
 
         function setupSocketHandlers() {
             socket.on('init', (data) => { obstacles = data.obstacles; MAP_SIZE = data.mapSize; });
             socket.on('updateOnline', (count) => { onlineDisplay.innerText = 'Online: ' + count; });
-            
             socket.on('update', (data) => { 
                 for (let id in data.players) {
                     const sP = data.players[id];
                     if (!players[id]) {
                         players[id] = { ...sP, targetX: sP.x, targetY: sP.y };
                     } else {
-                        players[id].targetX = sP.x;
-                        players[id].targetY = sP.y;
-                        players[id].hp = sP.hp;
-                        players[id].dead = sP.dead;
-                        players[id].color = sP.color;
-                        players[id].name = sP.name;
+                        players[id].targetX = sP.x; players[id].targetY = sP.y;
+                        players[id].hp = sP.hp; players[id].dead = sP.dead;
+                        players[id].color = sP.color; players[id].name = sP.name;
                     }
                 }
                 for (let id in players) { if (!data.players[id]) delete players[id]; }
                 bullets = data.bullets; 
                 if (players[socket.id]) deathScreen.style.display = players[socket.id].dead ? 'block' : 'none';
             });
-
-            // Звук выстрела ТОЛЬКО при сигнале от сервера
-            socket.on('playShotSound', (data) => {
-                shotSound.currentTime = 0;
-                shotSound.play().catch(() => {});
-            });
-
+            socket.on('playShotSound', () => { shotSound.currentTime = 0; shotSound.play().catch(() => {}); });
             socket.on('hitEffect', (data) => {
                 if (data.victimId === socket.id || data.attackerId === socket.id) {
                     damageSound.currentTime = 0; damageSound.play().catch(() => {});
@@ -121,12 +120,10 @@
         window.addEventListener('keydown', (e) => { keys[e.code] = true; });
         window.addEventListener('keyup', (e) => { keys[e.code] = false; });
         window.addEventListener('mousemove', (e) => { mousePos.x = e.clientX; mousePos.y = e.clientY; });
-        
         window.addEventListener('mousedown', () => {
             if (!socket || !gameActive) return;
             const me = players[socket.id];
             if (!me || me.dead) return;
-            // Звук здесь удален, он придет от сервера
             const camX = me.x - canvas.width / 2;
             const camY = me.y - canvas.height / 2;
             socket.emit('shoot', { x: mousePos.x + camX, y: mousePos.y + camY });
@@ -140,7 +137,6 @@
                 let vx = 0, vy = 0;
                 if (keys['KeyW']) vy -= 1; if (keys['KeyS']) vy += 1;
                 if (keys['KeyA']) vx -= 1; if (keys['KeyD']) vx += 1;
-                
                 if ((vx !== 0 || vy !== 0) && !me.dead) {
                     const speed = 5;
                     const len = Math.sqrt(vx * vx + vy * vy);
@@ -150,44 +146,37 @@
                     if (!obstacles.some(o => me.x < o.x + o.w && me.x + 40 > o.x && me.y + dy < o.y + o.h && me.y + dy + 40 > o.y)) me.y += dy;
                     socket.emit('move', { x: vx, y: vy });
                 }
-
                 for (let id in players) {
                     let p = players[id];
-                    if (id !== socket.id) {
-                        p.x += (p.targetX - p.x) * 0.25; p.y += (p.targetY - p.y) * 0.25;
-                    } else {
+                    if (id !== socket.id) { p.x += (p.targetX - p.x) * 0.25; p.y += (p.targetY - p.y) * 0.25; } 
+                    else {
                         const dist = Math.sqrt((p.targetX - p.x)**2 + (p.targetY - p.y)**2);
                         if (dist > 50) { p.x = p.targetX; p.y = p.targetY; } 
                         else { p.x += (p.targetX - p.x) * 0.1; p.y += (p.targetY - p.y) * 0.1; }
                     }
                 }
-
                 const camX = Math.floor(me.x - canvas.width / 2);
                 const camY = Math.floor(me.y - canvas.height / 2);
-                ctx.save();
-                ctx.translate(-camX, -camY);
-
-                // Сетка
+                ctx.save(); ctx.translate(-camX, -camY);
                 ctx.strokeStyle = '#222';
                 for(let i=0; i<=MAP_SIZE; i+=100) {
                     ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, MAP_SIZE); ctx.stroke();
                     ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(MAP_SIZE, i); ctx.stroke();
                 }
 
-                // Отрисовка препятствий
-                ctx.fillStyle = '#444';
-                obstacles.forEach(o => { ctx.fillRect(o.x, o.y, o.w, o.h); ctx.strokeStyle = '#000'; ctx.strokeRect(o.x, o.y, o.w, o.h); });
+                // ПРЕПЯТСТВИЯ
+                obstacles.forEach(o => {
+                    ctx.fillStyle = o.type === 'box' ? '#5d4037' : '#444'; // Коричневый для коробок
+                    ctx.fillRect(o.x, o.y, o.w, o.h);
+                    ctx.strokeStyle = '#000'; ctx.strokeRect(o.x, o.y, o.w, o.h);
+                });
 
-                // Пули
                 ctx.fillStyle = '#ffff00';
                 bullets.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI*2); ctx.fill(); });
-
-                // Игроки
                 for (let id in players) {
                     const p = players[id];
                     if (p.dead) continue;
-                    ctx.fillStyle = p.color;
-                    ctx.fillRect(p.x, p.y, 40, 40);
+                    ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 40, 40);
                     ctx.strokeStyle = (id === socket.id) ? '#fff' : '#000';
                     ctx.lineWidth = 2; ctx.strokeRect(p.x, p.y, 40, 40);
                     ctx.fillStyle = '#fff'; ctx.font = 'bold 14px Arial'; ctx.textAlign = 'center';
@@ -196,8 +185,6 @@
                     ctx.fillStyle = '#00ff00'; ctx.fillRect(p.x, p.y - 15, (p.hp / 3) * 40, 6);
                 }
                 ctx.restore();
-
-                // Прицел
                 ctx.strokeStyle = '#0f0'; ctx.lineWidth = 2; ctx.beginPath();
                 ctx.moveTo(mousePos.x - 15, mousePos.y); ctx.lineTo(mousePos.x + 15, mousePos.y);
                 ctx.moveTo(mousePos.x, mousePos.y - 15); ctx.lineTo(mousePos.x, mousePos.y + 15); ctx.stroke();
