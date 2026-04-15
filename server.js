@@ -21,11 +21,13 @@ function isAreaClear(x, y, w, h, padding = 20) {
     );
 }
 
+// Границы карты
 obstacles.push({ x: 0, y: 0, w: MAP_SIZE, h: 15, type: 'wall' });
 obstacles.push({ x: 0, y: MAP_SIZE - 15, w: MAP_SIZE, h: 15, type: 'wall' });
 obstacles.push({ x: 0, y: 0, w: 15, h: MAP_SIZE, type: 'wall' });
 obstacles.push({ x: MAP_SIZE - 15, y: 0, w: 15, h: MAP_SIZE, type: 'wall' });
 
+// Генерация препятствий
 let attempts = 0;
 while (obstacles.length < 65 && attempts < 500) {
     const isBox = Math.random() > 0.6;
@@ -99,11 +101,14 @@ setInterval(() => {
                 if (b.x > p.x && b.x < p.x + 40 && b.y > p.y && b.y < p.y + 40) {
                     p.hp -= 1; b.life = 0;
                     
-                    io.to(id).emit('hitEffect'); // Жертва слышит звук и видит красный экран
+                    // Жертве: звук + красный экран
+                    io.to(id).emit('hitEffect'); 
+                    
                     const shooter = players[b.id];
                     if (shooter) {
                         const dist = Math.sqrt((p.x - shooter.x)**2 + (p.y - shooter.y)**2);
-                        if (dist < 900) io.to(b.id).emit('hitEffect'); // Стрелок слышит попадание
+                        // Стрелку: только звук
+                        if (dist < 900) io.to(b.id).emit('hitSound'); 
                     }
 
                     if (p.hp <= 0) {
