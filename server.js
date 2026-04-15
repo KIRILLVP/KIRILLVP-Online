@@ -21,7 +21,6 @@ function isAreaClear(x, y, w, h, padding = 20) {
     );
 }
 
-// Границы
 obstacles.push({ x: 0, y: 0, w: MAP_SIZE, h: 15, type: 'wall' });
 obstacles.push({ x: 0, y: MAP_SIZE - 15, w: MAP_SIZE, h: 15, type: 'wall' });
 obstacles.push({ x: 0, y: 0, w: 15, h: MAP_SIZE, type: 'wall' });
@@ -52,20 +51,8 @@ function getSafeSpawn() {
 
 io.on('connection', (socket) => {
     const spawn = getSafeSpawn();
-    let color;
-    let colorUnique = false;
-    while(!colorUnique) {
-        color = `hsl(${Math.random() * 360}, 70%, 50%)`;
-        colorUnique = !Object.values(players).some(p => p.color === color);
-    }
-
-    players[socket.id] = {
-        x: spawn.x, y: spawn.y,
-        color: color,
-        hp: 3, dead: false,
-        name: "Player #" + socket.id.substr(0, 5),
-        lastShot: 0
-    };
+    let color = `hsl(${Math.random() * 360}, 70%, 50%)`;
+    players[socket.id] = { x: spawn.x, y: spawn.y, color, hp: 3, dead: false, name: "Player", lastShot: 0 };
 
     socket.emit('init', { obstacles, mapSize: MAP_SIZE });
     io.emit('updateOnline', Object.keys(players).length);
@@ -96,10 +83,7 @@ io.on('connection', (socket) => {
         socket.emit('playShotSound'); 
     });
 
-    socket.on('disconnect', () => {
-        delete players[socket.id];
-        io.emit('updateOnline', Object.keys(players).length);
-    });
+    socket.on('disconnect', () => { delete players[socket.id]; io.emit('updateOnline', Object.keys(players).length); });
 });
 
 setInterval(() => {
@@ -115,9 +99,12 @@ setInterval(() => {
                 if (b.x > p.x && b.x < p.x + 40 && b.y > p.y && b.y < p.y + 40) {
                     p.hp -= 1; b.life = 0;
                     
-                    // Звук и эффект обоим игрокам (без условий по дистанции)
-                    io.to(id).emit('hitEffect');   // Жертве (плюс покраснение)
-                    io.to(b.id).emit('hitEffect'); // Стрелку (подтверждение попадания)
+                    io.to(id).emit('hitEffect'); // Жертва слышит звук и видит красный экран
+                    const shooter = players[b.id];
+                    if (shooter) {
+                        const dist = Math.sqrt((p.x - shooter.x)**2 + (p.y - shooter.y)**2);
+                        if (dist < 900) io.to(b.id).emit('hitEffect'); // Стрелок слышит попадание
+                    }
 
                     if (p.hp <= 0) {
                         p.dead = true;
