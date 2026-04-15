@@ -12,36 +12,63 @@ app.use(express.static(path.join(__dirname, 'public')));
 let players = {};
 let bullets = [];
 const MAP_SIZE = 2000;
-
-// ГЕНЕРАЦИЯ ПРЕПЯТСТВИЙ
 const obstacles = [];
-// Границы карты
+
+// ФУНКЦИЯ ПРОВЕРКИ КОЛЛИЗИЙ ПРИ ГЕНЕРАЦИИ
+function isAreaClear(x, y, w, h, padding = 20) {
+    return !obstacles.some(o => 
+        x < o.x + o.w + padding && x + w + padding > o.x &&
+        y < o.y + o.h + padding && y + h + padding > o.y
+    );
+}
+
+// ГЕНЕРАЦИЯ ГРАНИЦ
 obstacles.push({ x: 0, y: 0, w: MAP_SIZE, h: 15, type: 'wall' });
 obstacles.push({ x: 0, y: MAP_SIZE - 15, w: MAP_SIZE, h: 15, type: 'wall' });
 obstacles.push({ x: 0, y: 0, w: 15, h: MAP_SIZE, type: 'wall' });
 obstacles.push({ x: MAP_SIZE - 15, y: 0, w: 15, h: MAP_SIZE, type: 'wall' });
 
-// Заполняем карту коробками и стенами (60 штук)
-for (let i = 0; i < 60; i++) {
+// ГЕНЕРАЦИЯ ПРЕПЯТСТВИЙ (БЕЗ НАЛОЖЕНИЯ)
+let attempts = 0;
+while (obstacles.length < 65 && attempts < 500) {
     const isBox = Math.random() > 0.6;
-    const w = isBox ? 45 : 40 + Math.random() * 160;
-    const h = isBox ? 45 : 40 + Math.random() * 160;
-    obstacles.push({
-        x: Math.random() * (MAP_SIZE - 200) + 100,
-        y: Math.random() * (MAP_SIZE - 200) + 100,
-        w: w,
-        h: h,
-        type: isBox ? 'box' : 'wall'
-    });
+    const w = isBox ? 45 : 50 + Math.random() * 150;
+    const h = isBox ? 45 : 50 + Math.random() * 150;
+    const x = Math.random() * (MAP_SIZE - 250) + 50;
+    const y = Math.random() * (MAP_SIZE - 250) + 50;
+
+    if (isAreaClear(x, y, w, h, 30)) {
+        obstacles.push({ x, y, w, h, type: isBox ? 'box' : 'wall' });
+    }
+    attempts++;
+}
+
+// ФУНКЦИЯ БЕЗОПАСНОГО СПАВНА
+function getSafeSpawn() {
+    let sx, sy, safe = false;
+    while (!safe) {
+        sx = 100 + Math.random() * (MAP_SIZE - 200);
+        sy = 100 + Math.random() * (MAP_SIZE - 200);
+        safe = !obstacles.some(o => sx < o.x + o.w + 10 && sx + 40 > o.x - 10 && sy < o.y + o.h + 10 && sy + 40 > o.y - 10);
+    }
+    return { x: sx, y: sy };
 }
 
 io.on('connection', (socket) => {
+    const spawn = getSafeSpawn();
+    
+    // ГЕНЕРАЦИЯ УНИКАЛЬНОГО ЦВЕТА
+    let color;
+    let colorUnique = false;
+    while(!colorUnique) {
+        color = `hsl(${Math.random() * 360}, 70%, 50%)`;
+        colorUnique = !Object.values(players).some(p => p.color === color);
+    }
+
     players[socket.id] = {
-        x: 150 + Math.random() * 300,
-        y: 150 + Math.random() * 300,
-        color: `hsl(${Math.random() * 360}, 70%, 50%)`,
-        hp: 3,
-        dead: false,
+        x: spawn.x, y: spawn.y,
+        color: color,
+        hp: 3, dead: false,
         name: "Player #" + socket.id.substr(0, 5),
         lastShot: 0
     };
@@ -50,9 +77,7 @@ io.on('connection', (socket) => {
     io.emit('updateOnline', Object.keys(players).length);
 
     socket.on('setNickname', (name) => {
-        if (name && name.trim().length > 0) {
-            players[socket.id].name = name.trim().substring(0, 12);
-        }
+        if (name && name.trim().length > 0) players[socket.id].name = name.trim().substring(0, 12);
     });
 
     socket.on('move', (data) => {
@@ -73,17 +98,8 @@ io.on('connection', (socket) => {
         const now = Date.now();
         if (!p || p.dead || now - p.lastShot < 400) return;
         p.lastShot = now;
-        
         const angle = Math.atan2(target.y - (p.y + 20), target.x - (p.x + 20));
-        bullets.push({ 
-            id: socket.id, 
-            x: p.x + 20, 
-            y: p.y + 20, 
-            vx: Math.cos(angle) * 12, 
-            vy: Math.sin(angle) * 12, 
-            life: 80 
-        });
-
+        bullets.push({ id: socket.id, x: p.x + 20, y: p.y + 20, vx: Math.cos(angle) * 12, vy: Math.sin(angle) * 12, life: 80 });
         socket.emit('playShotSound'); 
     });
 
@@ -93,41 +109,34 @@ io.on('connection', (socket) => {
     });
 });
 
-// ГЛАВНЫЙ ЦИКЛ ОБСЧЕТА (УРОН И ФИЗИКА)
 setInterval(() => {
     bullets.forEach((b) => {
-        b.x += b.vx;
-        b.y += b.vy;
-        b.life--;
-
-        // Столкновение с препятствиями
+        b.x += b.vx; b.y += b.vy; b.life--;
         for (let o of obstacles) {
-            if (b.x > o.x && b.x < o.x + o.w && b.y > o.y && b.y < o.y + o.h) {
-                b.life = 0;
-                break;
-            }
+            if (b.x > o.x && b.x < o.x + o.w && b.y > o.y && b.y < o.y + o.h) { b.life = 0; break; }
         }
-
-        // Попадание по игрокам
         if (b.life > 0) {
             for (let id in players) {
                 let p = players[id];
                 if (p.dead || id === b.id) continue;
-
                 if (b.x > p.x && b.x < p.x + 40 && b.y > p.y && b.y < p.y + 40) {
-                    p.hp -= 1;
-                    b.life = 0;
+                    p.hp -= 1; b.life = 0;
                     
-                    io.to(id).emit('hitEffect');
-                    io.to(b.id).emit('hitEffect');
+                    // ЗВУКОВАЯ ЛОГИКА
+                    io.to(id).emit('hitEffect'); // Жертва слышит всегда
+                    
+                    const shooter = players[b.id];
+                    if (shooter) {
+                        // Если жертва на экране стрелка (дистанция < ~800 пикселей)
+                        const dist = Math.sqrt((p.x - shooter.x)**2 + (p.y - shooter.y)**2);
+                        if (dist < 900) io.to(b.id).emit('hitEffect');
+                    }
 
                     if (p.hp <= 0) {
                         p.dead = true;
                         setTimeout(() => {
-                            p.hp = 3;
-                            p.dead = false;
-                            p.x = 100 + Math.random() * (MAP_SIZE - 200);
-                            p.y = 100 + Math.random() * (MAP_SIZE - 200);
+                            const ns = getSafeSpawn();
+                            p.hp = 3; p.dead = false; p.x = ns.x; p.y = ns.y;
                         }, 3000);
                     }
                     break;
@@ -135,10 +144,8 @@ setInterval(() => {
             }
         }
     });
-
     bullets = bullets.filter(b => b.life > 0);
     io.emit('update', { players, bullets });
 }, 15);
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT);
+server.listen(process.env.PORT || 3000);
