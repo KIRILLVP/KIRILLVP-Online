@@ -14,36 +14,36 @@ let bullets = [];
 const MAP_SIZE = 2000;
 const obstacles = [];
 
-// ФУНКЦИЯ ПРОВЕРКИ КОЛЛИЗИЙ ПРИ ГЕНЕРАЦИИ
-function isAreaClear(x, y, w, h, padding = 20) {
+// ПРОВЕРКА КОЛЛИЗИЙ ДЛЯ ГЕНЕРАЦИИ (чтобы не слипались)
+function isAreaClear(x, y, w, h, padding = 35) {
     return !obstacles.some(o => 
         x < o.x + o.w + padding && x + w + padding > o.x &&
         y < o.y + o.h + padding && y + h + padding > o.y
     );
 }
 
-// ГЕНЕРАЦИЯ ГРАНИЦ
-obstacles.push({ x: 0, y: 0, w: MAP_SIZE, h: 15, type: 'wall' });
-obstacles.push({ x: 0, y: MAP_SIZE - 15, w: MAP_SIZE, h: 15, type: 'wall' });
-obstacles.push({ x: 0, y: 0, w: 15, h: MAP_SIZE, type: 'wall' });
-obstacles.push({ x: MAP_SIZE - 15, y: 0, w: 15, h: MAP_SIZE, type: 'wall' });
+// ГРАНИЦЫ КАРТЫ
+obstacles.push({ x: 0, y: 0, w: MAP_SIZE, h: 20, type: 'wall' });
+obstacles.push({ x: 0, y: MAP_SIZE - 20, w: MAP_SIZE, h: 20, type: 'wall' });
+obstacles.push({ x: 0, y: 0, w: 20, h: MAP_SIZE, type: 'wall' });
+obstacles.push({ x: MAP_SIZE - 20, y: 0, w: 20, h: MAP_SIZE, type: 'wall' });
 
-// ГЕНЕРАЦИЯ ПРЕПЯТСТВИЙ (БЕЗ НАЛОЖЕНИЯ)
+// ГЕНЕРАЦИЯ ОБЪЕКТОВ
 let attempts = 0;
-while (obstacles.length < 65 && attempts < 500) {
+while (obstacles.length < 70 && attempts < 1000) {
     const isBox = Math.random() > 0.6;
     const w = isBox ? 45 : 50 + Math.random() * 150;
     const h = isBox ? 45 : 50 + Math.random() * 150;
     const x = Math.random() * (MAP_SIZE - 250) + 50;
     const y = Math.random() * (MAP_SIZE - 250) + 50;
 
-    if (isAreaClear(x, y, w, h, 30)) {
+    if (isAreaClear(x, y, w, h, 40)) {
         obstacles.push({ x, y, w, h, type: isBox ? 'box' : 'wall' });
     }
     attempts++;
 }
 
-// ФУНКЦИЯ БЕЗОПАСНОГО СПАВНА
+// БЕЗОПАСНЫЙ СПАВН (чтобы не в стене)
 function getSafeSpawn() {
     let sx, sy, safe = false;
     while (!safe) {
@@ -57,12 +57,14 @@ function getSafeSpawn() {
 io.on('connection', (socket) => {
     const spawn = getSafeSpawn();
     
-    // ГЕНЕРАЦИЯ УНИКАЛЬНОГО ЦВЕТА
+    // УНИКАЛЬНЫЙ ЦВЕТ
     let color;
-    let colorUnique = false;
-    while(!colorUnique) {
-        color = `hsl(${Math.random() * 360}, 70%, 50%)`;
-        colorUnique = !Object.values(players).some(p => p.color === color);
+    let isUnique = false;
+    let colorAttempts = 0;
+    while (!isUnique && colorAttempts < 50) {
+        color = `hsl(${Math.random() * 360}, 80%, 55%)`;
+        isUnique = !Object.values(players).some(p => p.color === color);
+        colorAttempts++;
     }
 
     players[socket.id] = {
@@ -112,9 +114,12 @@ io.on('connection', (socket) => {
 setInterval(() => {
     bullets.forEach((b) => {
         b.x += b.vx; b.y += b.vy; b.life--;
+        
+        // Коллизия пуль с объектами
         for (let o of obstacles) {
             if (b.x > o.x && b.x < o.x + o.w && b.y > o.y && b.y < o.y + o.h) { b.life = 0; break; }
         }
+
         if (b.life > 0) {
             for (let id in players) {
                 let p = players[id];
@@ -127,16 +132,19 @@ setInterval(() => {
                     
                     const shooter = players[b.id];
                     if (shooter) {
-                        // Если жертва на экране стрелка (дистанция < ~800 пикселей)
+                        // Расстояние 2000 пикселей для покрытия больших экранов
                         const dist = Math.sqrt((p.x - shooter.x)**2 + (p.y - shooter.y)**2);
-                        if (dist < 900) io.to(b.id).emit('hitEffect');
+                        if (dist < 2000) io.to(b.id).emit('hitEffect');
                     }
 
                     if (p.hp <= 0) {
                         p.dead = true;
                         setTimeout(() => {
                             const ns = getSafeSpawn();
-                            p.hp = 3; p.dead = false; p.x = ns.x; p.y = ns.y;
+                            if (players[id]) { // Проверка, что игрок не вышел
+                                players[id].hp = 3; players[id].dead = false; 
+                                players[id].x = ns.x; players[id].y = ns.y;
+                            }
                         }, 3000);
                     }
                     break;
